@@ -12,5 +12,5 @@ A Bash script designed to **disable all home security cameras** connected to the
 bash Fsociety00.dat <WIFI_INTERFACE> <TARGET_WIFI_NAME>
 ```
 
-**Note: You need monitor mode antenna**
+**Note: You need monitor mode antenna and install Aircrack**
 
