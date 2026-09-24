@@ -109,7 +109,7 @@ for line in $LIST; do
         echo "$RES"
         for marca in "${marcas_camaras[@]}"; do
             if [[ "$RES" == *"$marca"* ]]; then
-                echo "✅ Coincide $line con marca: $marca"
+                echo " ✓ Coincide $line con marca: $marca"
                 CAMS+=("$line")
                 break  # opcional: salta al siguiente MAC si ya coincidió
             fi
@@ -125,7 +125,7 @@ printf '%s\n' "${CAMS[@]}"
 
 # Función que se ejecutará cuando presiones Ctrl+C
 cleanup() {
-    echo -e "\n🛑 Deteniendo todos los procesos aireplay-ng..."
+    echo -e "\n x Deteniendo todos los procesos aireplay-ng..."
     pkill -f aireplay-ng
     exit 1
 }
@@ -133,7 +133,7 @@ cleanup() {
 # Capturar Ctrl+C (SIGINT)
 trap cleanup SIGINT
 
-echo -e "\n📷 Dispositivos identificados como cámaras:"
+echo -e "\nDispositivos identificados como cámaras:"
 printf '%s\n' "${CAMS[@]}"
 
 for cam in "${CAMS[@]}"; do
